@@ -1,6 +1,8 @@
 terraform {
   required_version = ">= 1.0"
-  
+
+  backend "s3" {}
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -21,10 +23,15 @@ locals {
   s3_bucket_only = split("/", var.s3_bucket_name)[0]
 }
 
+# Data source for existing Kiro reports S3 bucket
+data "aws_s3_bucket" "kiro_reports" {
+  bucket = local.s3_bucket_only
+}
+
 # S3 Bucket for Athena query results
 resource "aws_s3_bucket" "athena_results" {
-  bucket = "${var.project_name}-athena-results"
-  
+  bucket = "${var.project_name}-athena-results-${var.aws_account_id}"
+
   #tags = merge(var.tags, {
   #  Name = "${var.project_name}-athena-results"
   #})
@@ -55,7 +62,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "athena_results_en
 # Enable versioning for Athena results bucket
 resource "aws_s3_bucket_versioning" "athena_results_versioning" {
   bucket = aws_s3_bucket.athena_results.id
-  
+
   versioning_configuration {
     status = "Enabled"
   }
@@ -63,15 +70,15 @@ resource "aws_s3_bucket_versioning" "athena_results_versioning" {
 
 resource "aws_s3_bucket_lifecycle_configuration" "athena_results_lifecycle" {
   bucket = aws_s3_bucket.athena_results.id
-  
+
   rule {
     id     = "delete-old-results"
     status = "Enabled"
-    
+
     filter {
       prefix = ""
     }
-    
+
     expiration {
       days = 7
     }
@@ -87,7 +94,7 @@ resource "aws_glue_catalog_database" "analytics_db" {
 # IAM Role for Glue Crawler
 resource "aws_iam_role" "glue_crawler_role" {
   name = "${var.project_name}-glue-crawler-role"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -100,7 +107,7 @@ resource "aws_iam_role" "glue_crawler_role" {
       }
     ]
   })
-  
+
   #tags = var.tags
 }
 
@@ -112,7 +119,7 @@ resource "aws_iam_role_policy_attachment" "glue_service_policy" {
 resource "aws_iam_role_policy" "glue_s3_policy" {
   name = "${var.project_name}-glue-s3-policy"
   role = aws_iam_role.glue_crawler_role.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -124,8 +131,8 @@ resource "aws_iam_role_policy" "glue_s3_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::${local.s3_bucket_only}",
-          "arn:aws:s3:::${local.s3_data_path}/*"
+          data.aws_s3_bucket.kiro_reports.arn,
+          "${data.aws_s3_bucket.kiro_reports.arn}/*"
         ]
       }
     ]
@@ -137,45 +144,45 @@ resource "aws_glue_crawler" "analytics_crawler" {
   name          = "${var.project_name}-crawler"
   role          = aws_iam_role.glue_crawler_role.arn
   database_name = aws_glue_catalog_database.analytics_db.name
-  
+
   s3_target {
     path = "s3://${local.s3_data_path}/"
   }
-  
+
   schema_change_policy {
     delete_behavior = "LOG"
     update_behavior = "UPDATE_IN_DATABASE"
   }
-  
+
   configuration = jsonencode({
     Version = 1.0
     CrawlerOutput = {
       Partitions = { AddOrUpdateBehavior = "InheritFromTable" }
     }
   })
-  
+
   schedule = var.glue_crawler_schedule
-  
+
   #tags = var.tags
 }
 
 # Athena Workgroup
 resource "aws_athena_workgroup" "analytics_workgroup" {
   name = "${var.project_name}-workgroup"
-  
+
   configuration {
     enforce_workgroup_configuration    = true
     publish_cloudwatch_metrics_enabled = true
-    
+
     result_configuration {
       output_location = "s3://${aws_s3_bucket.athena_results.bucket}/"
-      
+
       encryption_configuration {
         encryption_option = "SSE_S3"
       }
     }
   }
-  
+
   #tags = var.tags
 }
 
@@ -183,7 +190,7 @@ resource "aws_athena_workgroup" "analytics_workgroup" {
 resource "aws_iam_policy" "athena_access_policy" {
   name        = "${var.project_name}-athena-access"
   description = "Policy for accessing Athena and Glue resources"
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -221,8 +228,8 @@ resource "aws_iam_policy" "athena_access_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::${local.s3_bucket_only}",
-          "arn:aws:s3:::${local.s3_data_path}/*"
+          data.aws_s3_bucket.kiro_reports.arn,
+          "${data.aws_s3_bucket.kiro_reports.arn}/*"
         ]
       },
       {
@@ -239,7 +246,7 @@ resource "aws_iam_policy" "athena_access_policy" {
       }
     ]
   })
-  
+
   #tags = var.tags
 }
 
@@ -247,7 +254,7 @@ resource "aws_iam_policy" "athena_access_policy" {
 # This role can be assumed by ECS tasks, EC2 instances, or Lambda functions
 resource "aws_iam_role" "app_role" {
   name = "${var.project_name}-app-role"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -264,7 +271,7 @@ resource "aws_iam_role" "app_role" {
       }
     ]
   })
-  
+
   #tags = var.tags
 }
 
@@ -285,7 +292,7 @@ resource "aws_iam_instance_profile" "app_instance_profile" {
 # This resource is kept for local development/testing only.
 resource "aws_iam_user" "app_user" {
   name = "${var.project_name}-app-user"
-  
+
   #tags = var.tags
 }
 

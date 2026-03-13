@@ -29,7 +29,7 @@ fi
 echo ""
 echo "🔧 Step 2: Deploying infrastructure"
 
-terraform -chdir=terraform init
+terraform -chdir=terraform init -backend-config=backend.hcl
 terraform -chdir=terraform plan
 
 read -p "Apply this plan? (yes/no): " confirm
@@ -82,6 +82,6 @@ echo "🚀 Step 5: Launching dashboard"
 echo ""
 echo "Run the following command to start the dashboard:"
 echo ""
-echo "cd app && python -m venv venv && source venv/bin/activate && pip install -r requirements.txt && streamlit run app.py"
+echo "cd app && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && streamlit run app.py"
 echo ""
 echo "✅ Deploy complete!"

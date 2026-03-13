@@ -29,7 +29,7 @@ variable "glue_database_name" {
 variable "glue_crawler_schedule" {
   description = "Cron expression for Glue crawler schedule"
   type        = string
-  default     = "cron(0 2 * * ? *)"  # Daily at 2 AM UTC
+  default     = "cron(0 2 * * ? *)" # Daily at 2 AM UTC
 }
 
 variable "identity_store_id" {

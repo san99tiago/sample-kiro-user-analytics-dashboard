@@ -46,22 +46,70 @@ streamlit run app.py
 
 The dashboard will be available at `http://localhost:8501`.
 
+## Terraform Backend (S3 Remote State)
+
+This project uses an S3 remote backend to store the Terraform state file. This allows team collaboration and prevents state conflicts.
+
+### Backend Configuration
+
+The backend is configured using partial configuration. The `main.tf` declares an empty `backend "s3" {}` block, and the actual values are provided via the `terraform/backend.hcl` file:
+
+```hcl
+# terraform/backend.hcl
+bucket = "santigrc-terraform-879381282397"
+key    = "kiro-reports"
+region = "us-east-1"
+```
+
+### Step-by-Step: Configuring the Backend
+
+1. Verify that the S3 bucket `santigrc-terraform-879381282397` exists in your AWS account and that your credentials have read/write access to it:
+
+   ```bash
+   aws s3 ls s3://santigrc-terraform-879381282397/
+   ```
+
+2. (Optional) If you need to customize the backend values, edit `terraform/backend.hcl` with your own bucket, key, or region.
+
+3. Initialize Terraform with the backend configuration:
+
+   ```bash
+   terraform -chdir=terraform init -backend-config=backend.hcl
+   ```
+
+4. If you are migrating from a local state to the remote backend, Terraform will ask you to confirm the migration. Type `yes` to proceed:
+
+   ```
+   Do you want to copy existing state to the new backend? Enter "yes" to copy and "no" to start with an empty state.
+   ```
+
+5. Verify the state is stored remotely:
+
+   ```bash
+   aws s3 ls s3://santigrc-terraform-879381282397/kiro-reports
+   ```
+
+6. From this point on, all `terraform plan` and `terraform apply` commands will use the remote state automatically.
+
+> **Note:** The `deploy.sh` script already includes `-backend-config=backend.hcl` in the `terraform init` command, so running `./deploy.sh` handles this for you.
+
 ## Configuration
 
 Edit `terraform/terraform.tfvars` with your values:
 
-| Variable | Required | Description |
-|---|---|---|
-| `aws_region` | No (default: `us-east-1`) | AWS region for all resources |
-| `aws_account_id` | Yes | Your AWS account ID |
-| `s3_bucket_name` | Yes | S3 bucket name including prefix (e.g. `kiro-dev/user`) |
-| `glue_database_name` | No | Glue catalog database name |
-| `glue_crawler_schedule` | No | Cron schedule for the Glue crawler |
-| `identity_store_id` | Yes | IAM Identity Center Identity Store ID (e.g. `d-1234567890`) for resolving user IDs to usernames |
-| `project_name` | No | Prefix for resource naming |
-| `tags` | No | Tags applied to all resources |
+| Variable                | Required                  | Description                                                                                     |
+| ----------------------- | ------------------------- | ----------------------------------------------------------------------------------------------- |
+| `aws_region`            | No (default: `us-east-1`) | AWS region for all resources                                                                    |
+| `aws_account_id`        | Yes                       | Your AWS account ID                                                                             |
+| `s3_bucket_name`        | Yes                       | S3 bucket name including prefix (e.g. `kiro-dev/user`). Bucket must already exist               |
+| `glue_database_name`    | No                        | Glue catalog database name                                                                      |
+| `glue_crawler_schedule` | No                        | Cron schedule for the Glue crawler                                                              |
+| `identity_store_id`     | Yes                       | IAM Identity Center Identity Store ID (e.g. `d-1234567890`) for resolving user IDs to usernames |
+| `project_name`          | No                        | Prefix for resource naming                                                                      |
+| `tags`                  | No                        | Tags applied to all resources                                                                   |
 
 The S3 data path is constructed automatically as:
+
 ```
 s3://{s3_bucket_name}/AWSLogs/{aws_account_id}/KiroLogs/user_report/{aws_region}/
 ```
@@ -83,19 +131,19 @@ After that, you just start the Streamlit app.
 
 The dashboard expects Kiro user report CSV data with these columns:
 
-| Column | Type | Description |
-|---|---|---|
-| `date` | string | Date of the report activity (YYYY-MM-DD) |
-| `userid` | string | ID of the user for whom the activity is reported |
-| `client_type` | string | `KIRO_IDE`, `KIRO_CLI`, or `PLUGIN` |
-| `chat_conversations` | integer | Number of conversations by the user during the day |
-| `credits_used` | double | Credits consumed from the user subscription plan during the day |
-| `overage_cap` | double | Overage limit set by admin (or max credits for plan if overage not enabled) |
-| `overage_credits_used` | double | Total overage credits used, if overage is enabled |
-| `overage_enabled` | string | Whether overage is enabled for this user |
-| `profileid` | string | Profile associated with the user activity |
-| `subscription_tier` | string | Kiro subscription plan (Pro, ProPlus, Power) |
-| `total_messages` | integer | Messages sent to and from Kiro (prompts, tool calls, responses) |
+| Column                 | Type    | Description                                                                 |
+| ---------------------- | ------- | --------------------------------------------------------------------------- |
+| `date`                 | string  | Date of the report activity (YYYY-MM-DD)                                    |
+| `userid`               | string  | ID of the user for whom the activity is reported                            |
+| `client_type`          | string  | `KIRO_IDE`, `KIRO_CLI`, or `PLUGIN`                                         |
+| `chat_conversations`   | integer | Number of conversations by the user during the day                          |
+| `credits_used`         | double  | Credits consumed from the user subscription plan during the day             |
+| `overage_cap`          | double  | Overage limit set by admin (or max credits for plan if overage not enabled) |
+| `overage_credits_used` | double  | Total overage credits used, if overage is enabled                           |
+| `overage_enabled`      | string  | Whether overage is enabled for this user                                    |
+| `profileid`            | string  | Profile associated with the user activity                                   |
+| `subscription_tier`    | string  | Kiro subscription plan (Pro, ProPlus, Power)                                |
+| `total_messages`       | integer | Messages sent to and from Kiro (prompts, tool calls, responses)             |
 
 ## Dashboard Sections
 
@@ -119,6 +167,7 @@ The dashboard expects Kiro user report CSV data with these columns:
 │   ├── main.tf                      # Glue, Athena, S3, IAM resources
 │   ├── variables.tf                 # Input variables
 │   ├── outputs.tf                   # Outputs (fed into app/.env)
+│   ├── backend.hcl                  # S3 backend configuration
 │   └── terraform.tfvars.example     # Example configuration
 └── app/
     ├── app.py                       # Streamlit dashboard
